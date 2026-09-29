@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -23,18 +22,18 @@ namespace TaskbarDock.Views;
 public partial class MenuWindow : Window
 {
     public ObservableCollection<ShortcutItem> Items { get; } = new();
-    public string TitleText { get; set; } = "";
     public double MenuMaxHeight { get; set; } = 520;
     public int ItemIconSize { get; set; } = 20;
 
     private readonly DockGroup _group;
-    private readonly DockWindow _dock;
-    private Button _anchor;
+    private readonly Action _onRefresh;
     private int _edge = ABE_BOTTOM;
-    private Rect _anchorRect;
+    private Rect? _anchorRect;
+    private Point _cursor;
+    private Rect _taskbar;
 
     // 拖拽状态
-    private bool _pressed, _dragging, _moved;
+    private bool _pressed, _dragging;
     private Point _start;
     private ShortcutItem _dragItem;
     private Popup _ghost;
@@ -44,16 +43,15 @@ public partial class MenuWindow : Window
     private HookProc _hookProc;
     private IntPtr _hwnd = IntPtr.Zero;
 
-    public MenuWindow(DockGroup group, List<ShortcutItem> items, DockWindow dock)
+    public MenuWindow(DockGroup group, List<ShortcutItem> items, Action onRefresh)
     {
         InitializeComponent();
         _group = group;
-        _dock = dock;
+        _onRefresh = onRefresh;
 
         var cfg = ConfigService.Config;
         ItemIconSize = cfg.ShowItemIcons ? cfg.ItemIconSize : 0;
         MenuMaxHeight = cfg.MenuMaxHeight;
-        TitleText = group.Name;
 
         foreach (var it in items)
         {
@@ -62,7 +60,7 @@ public partial class MenuWindow : Window
         }
 
         MaxWidth = cfg.MenuWidth;
-        MaxHeight = Math.Min(cfg.MenuMaxHeight + 120, SystemParameters.WorkArea.Height - 24);
+        MaxHeight = Math.Min(cfg.MenuMaxHeight + 40, SystemParameters.WorkArea.Height - 24);
         Opacity = 0;
 
         DataContext = this;
@@ -70,21 +68,21 @@ public partial class MenuWindow : Window
         Closed += OnClosed;
     }
 
-    public void Anchor(Button btn, int edge)
+    /// <param name="anchor">任务栏按钮矩形（逻辑像素），可为 null</param>
+    /// <param name="edge">任务栏所在边缘</param>
+    /// <param name="cursor">鼠标位置（逻辑像素），用于兜底定位</param>
+    /// <param name="taskbar">任务栏矩形（逻辑像素）</param>
+    public void Anchor(Rect? anchor, int edge, Point cursor, Rect taskbar)
     {
-        _anchor = btn;
+        _anchorRect = anchor;
         _edge = edge;
+        _cursor = cursor;
+        _taskbar = taskbar;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _hwnd = new WindowInteropHelper(this).Handle;
-
-        if (_anchor != null)
-        {
-            var p = _anchor.PointToScreen(new Point(0, 0));
-            _anchorRect = new Rect(p, new Size(_anchor.ActualWidth, _anchor.ActualHeight));
-        }
 
         Position();
 
@@ -110,24 +108,39 @@ public partial class MenuWindow : Window
 
     private void Position()
     {
-        if (_anchor == null) return;
-
-        var p = _anchor.PointToScreen(new Point(0, 0));
-        double bw = _anchor.ActualWidth, bh = _anchor.ActualHeight;
         double mw = ActualWidth, mh = ActualHeight;
         var wa = SystemParameters.WorkArea;
 
         double left, top;
-        switch (_edge)
+        if (_anchorRect.HasValue)
         {
-            case ABE_TOP:
-                left = p.X; top = p.Y + bh; break;
-            case ABE_LEFT:
-                left = p.X + bw; top = p.Y; break;
-            case ABE_RIGHT:
-                left = p.X - mw; top = p.Y; break;
-            default:
-                left = p.X; top = p.Y - mh; break;
+            var a = _anchorRect.Value;
+            switch (_edge)
+            {
+                case ABE_TOP:
+                    left = a.Left + a.Width / 2 - mw / 2; top = a.Bottom; break;
+                case ABE_LEFT:
+                    left = a.Right; top = a.Bottom - mh; break;
+                case ABE_RIGHT:
+                    left = a.Left - mw; top = a.Bottom - mh; break;
+                default:
+                    left = a.Left + a.Width / 2 - mw / 2; top = a.Top - mh; break;
+            }
+        }
+        else
+        {
+            // 兜底：贴着鼠标所在位置展开
+            switch (_edge)
+            {
+                case ABE_TOP:
+                    left = _cursor.X - mw / 2; top = _taskbar.Bottom; break;
+                case ABE_LEFT:
+                    left = _taskbar.Right; top = _cursor.Y - mh / 2; break;
+                case ABE_RIGHT:
+                    left = _taskbar.Left - mw; top = _cursor.Y - mh / 2; break;
+                default:
+                    left = _cursor.X - mw / 2; top = _taskbar.Top - mh; break;
+            }
         }
 
         left = Math.Max(wa.Left + 4, Math.Min(left, Math.Max(wa.Left + 4, wa.Right - mw - 4)));
@@ -170,7 +183,7 @@ public partial class MenuWindow : Window
                 double x = st.pt.x / scale, y = st.pt.y / scale;
 
                 var r = new Rect(Left, Top, ActualWidth, ActualHeight);
-                if (!r.Contains(x, y) && !_anchorRect.Contains(x, y))
+                if (!r.Contains(x, y))
                     Dispatcher.BeginInvoke(new Action(() => Close()));
             }
             catch { }
@@ -180,7 +193,7 @@ public partial class MenuWindow : Window
 
     private void OnDeactivated(object sender, EventArgs e)
     {
-        // 拖拽中的 Popup 或子窗口可能导致短暂失焦，这里不做关闭，交给鼠标钩子处理
+        // 拖拽中的 Popup 可能导致短暂失焦，这里不做关闭，交给鼠标钩子处理
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -194,7 +207,6 @@ public partial class MenuWindow : Window
         var item = ItemAt(e.GetPosition(List));
         if (item == null) return;
         _pressed = true;
-        _moved = false;
         _start = e.GetPosition(List);
         _dragItem = item;
     }
@@ -208,7 +220,6 @@ public partial class MenuWindow : Window
         {
             if ((pos - _start).Length < 6) return;
             _dragging = true;
-            _moved = true;
             _dragItem.IsDragging = true;
             List.CaptureMouse();
             ShowGhost(PointToScreen(e.GetPosition(this)));
@@ -240,14 +251,8 @@ public partial class MenuWindow : Window
 
     private void Launch(ShortcutItem item)
     {
-        try
-        {
-            ShortcutService.Launch(item);
-        }
-        catch (Exception ex)
-        {
-            ConfigService.Log("启动失败: " + ex.Message);
-        }
+        try { ShortcutService.Launch(item); }
+        catch (Exception ex) { ConfigService.Log("启动失败: " + ex.Message); }
     }
 
     private void Reorder(Point pos)
@@ -283,7 +288,8 @@ public partial class MenuWindow : Window
             Text = _dragItem.DisplayName,
             FontSize = 13,
             Margin = new Thickness(10, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)TryFindResource("Br.Fg")
         });
 
         _ghost = new Popup
@@ -321,7 +327,6 @@ public partial class MenuWindow : Window
         if (List.IsMouseCaptured) List.ReleaseMouseCapture();
         _dragging = false;
         _pressed = false;
-        _moved = false;
         _dragItem = null;
         SaveOrder();
     }
@@ -339,19 +344,7 @@ public partial class MenuWindow : Window
         }
     }
 
-    // ===== 底部按钮 =====
-    private void OnOpenFolder(object sender, RoutedEventArgs e)
-    {
-        try { Process.Start("explorer.exe", _group.Folder); } catch { }
-        Close();
-    }
-
-    private void OnSettings(object sender, RoutedEventArgs e)
-    {
-        Close();
-        App.Instance.OpenSettings();
-    }
-
+    // ===== 单项右键 =====
     protected override void OnPreviewMouseRightButtonUp(MouseButtonEventArgs e)
     {
         base.OnPreviewMouseRightButtonUp(e);
@@ -381,16 +374,19 @@ public partial class MenuWindow : Window
             item.DisplayName = name.Length == 0 ? item.Id : name;
             ConfigService.Save();
         });
-        Add(item.IconsVisibility == Visibility.Visible ? "隐藏图标" : "显示图标", () =>
+        Add("从菜单中隐藏", () =>
         {
-            item.IconsVisibility = item.IconsVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+            _group.Hidden ??= new List<string>();
+            if (!_group.Hidden.Contains(item.Id)) _group.Hidden.Add(item.Id);
+            Items.Remove(item);
+            ConfigService.Save();
         });
         menu.Items.Add(new Separator());
         Add("刷新列表", () =>
         {
             SaveOrder();
             Close();
-            _dock?.Rebuild();
+            _onRefresh?.Invoke();
         });
 
         menu.PlacementTarget = List;

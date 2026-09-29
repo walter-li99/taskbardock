@@ -201,6 +201,84 @@ public static class Win32
         finally { Marshal.FreeHGlobal(ptr); }
     }
 
+    // ===== 窗口消息 / 图标 =====
+    public const int WM_SYSCOMMAND = 0x0112;
+    public const int SC_MOVE = 0xF010;
+    public const int SC_MINIMIZE = 0xF020;
+    public const int SC_MAXIMIZE = 0xF030;
+    public const int SC_RESTORE = 0xF120;
+    public const int SC_CLOSE = 0xF060;
+    public const int WM_SETICON = 0x0080;
+    public const int ICON_SMALL = 0;
+    public const int ICON_BIG = 1;
+    public const int WM_NCDESTROY = 0x0082;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xFFFF);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint cPlanes, uint cBitsPerPel, IntPtr lpvBits);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr CreateIconIndirect(ref ICONINFO piconinfo);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteObject(IntPtr hObject);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ICONINFO
+    {
+        public int fIcon;
+        public int xHotspot;
+        public int yHotspot;
+        public IntPtr hbmMask;
+        public IntPtr hbmColor;
+    }
+
+    // ===== 窗口属性（AppUserModelID 等） =====
+    [DllImport("propsys.dll", CharSet = CharSet.Unicode)]
+    public static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid riid, out IntPtr ppv);
+
+    [ComImport]
+    [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IPropertyStore
+    {
+        int GetCount(out uint cProps);
+        int GetAt(uint iProp, out PROPERTYKEY pkey);
+        int GetValue(ref PROPERTYKEY key, out PropVariant pv);
+        int SetValue(ref PROPERTYKEY key, ref PropVariant pv);
+        int Commit();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROPERTYKEY
+    {
+        public Guid fmtid;
+        public uint pid;
+        public PROPERTYKEY(Guid g, uint p) { fmtid = g; pid = p; }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PropVariant
+    {
+        public ushort vt;
+        public ushort wReserved1;
+        public ushort wReserved2;
+        public ushort wReserved3;
+        public IntPtr pwszVal;
+    }
+
+    public const ushort VT_LPWSTR = 31;
+
     // ===== 文件图标 =====
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     public struct SHFILEINFO

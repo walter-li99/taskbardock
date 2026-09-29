@@ -11,6 +11,28 @@ from ctypes import wintypes
 EXE = r"C:\Users\Ainuc\WorkBuddy\任务栏整合\dist\TaskbarDock.exe"
 OUT = r"C:\Users\Ainuc\WorkBuddy\任务栏整合\tools\shots"
 
+WM_SYSCOMMAND = 0x0112
+SC_RESTORE = 0xF120
+
+
+def find_our_window(pid):
+    out = []
+    CB = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+    @CB
+    def cb(hwnd, l):
+        p = wintypes.DWORD()
+        u.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
+        if p.value == pid:
+            c = ctypes.create_unicode_buffer(256)
+            u.GetClassNameW(hwnd, c, 256)
+            if "HwndWrapper[TaskbarDock" in c.value:
+                out.append(int(hwnd))
+        return True
+
+    u.EnumWindows(cb, 0)
+    return out[0] if out else None
+
 try:
     ctypes.WinDLL("shcore").SetProcessDpiAwareness(2)
 except Exception:
@@ -131,6 +153,26 @@ def click(x, y):
     u.mouse_event(0x0004, 0, 0, 0, 0)
 
 
+def find_button(app_id=None, title=None):
+    """调用 PowerShell + UIA 定位任务栏按钮，返回 (x, y, w, h) 或 None。"""
+    ps = os.path.join(os.path.dirname(os.path.abspath(__file__)), "find_taskbar_button.ps1")
+    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps]
+    if app_id:
+        cmd += ["-AppId", app_id]
+    if title:
+        cmd += ["-Title", title]
+    out = subprocess.run(cmd, capture_output=True, timeout=90)
+    text = out.stdout.decode("utf-8", errors="replace")
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines or lines[0] == "none":
+        print("  按钮未找到，UIA 输出：")
+        for l in lines:
+            print("   ", l)
+        return None
+    parts = lines[0].split()
+    return tuple(int(p) for p in parts[:4])
+
+
 def main():
     tb = taskbar()
     print("taskbar", tb)
@@ -138,29 +180,38 @@ def main():
     sh = u.GetSystemMetrics(1)
     print("screen", sw, sh)
 
-    proc = subprocess.Popen([EXE], cwd=os.path.dirname(EXE))
+    proc = subprocess.Popen([EXE, "--startup"], cwd=os.path.dirname(EXE))
     time.sleep(4.5)
 
-    wins = windows()
-    docks = [w for w in wins if "HwndWrapper" in w[1] and "TaskbarDock" in w[1]]
-    for d in docks:
-        print("dock:", d[3], d[1][:60], d[2])
-    menus = [w for w in wins if "MenuWindow" in w[2] or "MenuWindow" in w[1]]
-    print("menus before:", len(menus))
+    rect = find_button(app_id="TaskbarDock.Group.g1", title="常用工具")
+    print("taskbar button:", rect)
 
-    cap_h = min(600, sh - 40)
-    save("01_dock.png", 0, sh - cap_h, min(760, sw), cap_h)
+    cap_top = max(0, sh - 900)
+    cap_h = sh - cap_top
+    cap_w = sw
+    save("01_taskbar.png", 0, cap_top, cap_w, cap_h)
 
-    if docks:
-        l, t, r, b = docks[0][3]
-        cx, cy = (l + r) / 2, (t + b) / 2
-        print("click dock at", cx, cy)
+    if rect:
+        x, y, w, h = rect
+        cx, cy = x + w / 2, y + h / 2
+        print("click button at", cx, cy)
         click(cx, cy)
         time.sleep(1.5)
         wins2 = windows()
         menus = [w for w in wins2 if "Menu" in w[2] or "Menu" in w[1]]
-        print("menus after:", [(m[2], m[3]) for m in menus])
-        save("02_menu.png", 0, sh - cap_h, min(760, sw), cap_h)
+        print("menus after real click:", [(m[2], m[3]) for m in menus])
+        save("02_menu_click.png", 0, cap_top, cap_w, cap_h)
+
+    # 同时用 WM_SYSCOMMAND 触发，避免任务栏对合成输入的过滤
+    hw = find_our_window(proc.pid)
+    if hw:
+        print("sending SC_RESTORE to hwnd", hw)
+        u.PostMessageW(hw, WM_SYSCOMMAND, SC_RESTORE, 0)
+        time.sleep(1.5)
+        wins3 = windows()
+        menus = [w for w in wins3 if "Menu" in w[2] or "Menu" in w[1]]
+        print("menus after SC_RESTORE:", [(m[2], m[3]) for m in menus])
+        save("03_menu_restore.png", 0, cap_top, cap_w, cap_h)
 
     time.sleep(0.5)
     proc.terminate()

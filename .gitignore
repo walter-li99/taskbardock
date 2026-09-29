@@ -4,3 +4,7 @@ test-shortcuts/
 .vs/
 bin/
 obj/
+.workbuddy/
+tools/shots/
+tools/_*.txt
+

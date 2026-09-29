@@ -44,6 +44,7 @@
         </Style>
     </Window.Resources>
 
+    <Grid Background="Transparent" MouseLeftButtonDown="OnWindowDrag">
     <Border Margin="12" CornerRadius="12"
             Background="{DynamicResource Br.Menu}"
             BorderBrush="{DynamicResource Br.Border}"
@@ -190,12 +191,12 @@
                                           Content="使用亚克力半透明背景（与 Windows 11 任务栏一致）"
                                           Checked="OnVisualChanged" Unchecked="OnVisualChanged"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="任务栏位置" Style="{StaticResource Label}" Margin="0,8"/>
-                                <ComboBox x:Name="AlignCombo" Grid.Row="2" Grid.Column="1" Margin="0,6" SelectionChanged="OnVisualChanged">
-                                    <ComboBoxItem Content="靠左" Tag="Left"/>
-                                    <ComboBoxItem Content="居中" Tag="Center"/>
-                                    <ComboBoxItem Content="靠右" Tag="Right"/>
-                                </ComboBox>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="任务栏图标" Style="{StaticResource Label}" Margin="0,8"/>
+                                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
+                                    <Button Content="立即重建" Style="{StaticResource FlatButton}" Padding="12,5" Click="OnRebuildIcons"/>
+                                    <TextBlock Margin="12,0,0,0" Style="{StaticResource SubLabel}" VerticalAlignment="Center"
+                                               Text="右键任务栏图标可「固定到任务栏 / 从任务栏取消固定」"/>
+                                </StackPanel>
 
                                 <TextBlock Grid.Row="3" Grid.Column="0" Text="图标大小" Style="{StaticResource Label}" Margin="0,8"/>
                                 <TextBox x:Name="IconSizeBox" Grid.Row="3" Grid.Column="1" Margin="0,6" Width="120" HorizontalAlignment="Left" TextChanged="OnVisualChanged"/>
@@ -233,7 +234,10 @@
                                 Margin="0,10" HorizontalAlignment="Left" Click="OnOpenConfigDir"/>
 
                         <TextBlock Margin="0,16,0,0" Style="{StaticResource SubLabel}"
-                                   Text="提示：右键点击任务栏上的图标可以打开目录或退出；菜单里右键单项可重命名。"/>
+                                   Text="用法：点击任务栏图标展开快捷方式菜单；菜单里按住名称可拖动排序，右键单项可重命名或隐藏。"/>
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource SubLabel}"
+                                   Text="图标已经固定在任务栏时会常驻；未固定时随本程序启动出现，右键可随时取消固定。"/>
+                        <TextBlock Margin="0,10,0,0" Style="{StaticResource SubLabel}" Text="命令行：--startup 静默启动 / --menu / --settings / --exit"/>
                         <TextBlock x:Name="VersionText" Margin="0,10,0,0" Style="{StaticResource SubLabel}"/>
                     </StackPanel>
                 </TabItem>
@@ -248,4 +252,5 @@
             </Border>
         </Grid>
     </Border>
+    </Grid>
 </Window>

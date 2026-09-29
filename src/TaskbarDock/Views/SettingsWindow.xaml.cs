@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using TaskbarDock.Icons;
 using TaskbarDock.Models;
@@ -49,7 +50,6 @@ public partial class SettingsWindow : Window
         _loading = true;
         var c = ConfigService.Config;
         SelectByTag(ThemeCombo, c.ThemeMode);
-        SelectByTag(AlignCombo, c.Align);
         AcrylicCheck.IsChecked = c.UseAcrylic;
         IconSizeBox.Text = c.IconSize.ToString();
         MenuWidthBox.Text = ((int)c.MenuWidth).ToString();
@@ -65,7 +65,6 @@ public partial class SettingsWindow : Window
     {
         var c = ConfigService.Config;
         c.ThemeMode = TagOf(ThemeCombo) ?? "System";
-        c.Align = TagOf(AlignCombo) ?? "Left";
         c.UseAcrylic = AcrylicCheck.IsChecked == true;
 
         if (int.TryParse(IconSizeBox.Text, out var s)) c.IconSize = Math.Clamp(s, 20, 64);
@@ -229,8 +228,7 @@ public partial class SettingsWindow : Window
         ApplyGlobalsFromUi();
         ConfigService.Save();
         ThemeService.Refresh();
-        App.Dock?.Rebuild();
-        App.Dock?.ApplyVisual();
+        App.SyncHosts();
         App.Instance?.RefreshTray();
         App.Instance?.ApplyAutoStart();
     }
@@ -253,9 +251,34 @@ public partial class SettingsWindow : Window
         try { Process.Start("explorer.exe", ConfigService.AppDir); } catch { }
     }
 
+    private void OnRebuildIcons(object sender, RoutedEventArgs e)
+    {
+        App.Instance?.RefreshAll();
+    }
+
     private void OnDragMove(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed)
-            DragMove();
+        {
+            try { DragMove(); } catch { }
+        }
+    }
+
+    /// <summary>窗口任意空白处都能拖动。</summary>
+    private void OnWindowDrag(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+
+        var src = e.OriginalSource as DependencyObject;
+        while (src != null)
+        {
+            if (src is TextBox || src is ButtonBase || src is ComboBox || src is ListBox
+                || src is CheckBox || src is ScrollBar || src is TabItem || src is Slider
+                || src is MenuBase || src is PasswordBox)
+                return;
+            src = VisualTreeHelper.GetParent(src);
+        }
+
+        try { DragMove(); } catch { }
     }
 }
