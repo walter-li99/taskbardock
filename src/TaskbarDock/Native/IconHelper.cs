@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -57,6 +58,44 @@ public static class IconHelper
         }
     }
 
+    /// <summary>把 HICON 保存为 Vista+ 支持的 PNG-in-ICO 文件，用于任务栏 RelaunchIconResource。</summary>
+    public static string SaveToIco(IntPtr hIcon, string path)
+    {
+        if (hIcon == IntPtr.Zero) return null;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var icon = System.Drawing.Icon.FromHandle(hIcon);
+            using var bmp = icon.ToBitmap();
+            using var ms = new MemoryStream();
+            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            var png = ms.ToArray();
+
+            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
+            // ICONDIR
+            fs.WriteByte(0); fs.WriteByte(0);              // Reserved
+            fs.WriteByte(1); fs.WriteByte(0);              // Type: icon
+            fs.WriteByte(1); fs.WriteByte(0);              // Count
+            // ICONDIRENTRY
+            int w = bmp.Width, h = bmp.Height;
+            fs.WriteByte((byte)(w > 255 ? 0 : w));
+            fs.WriteByte((byte)(h > 255 ? 0 : h));
+            fs.WriteByte(0);                               // Colors
+            fs.WriteByte(0);                               // Reserved
+            fs.WriteByte(1); fs.WriteByte(0);              // Planes
+            fs.WriteByte(32); fs.WriteByte(0);             // Bit count
+            fs.Write(BitConverter.GetBytes(png.Length), 0, 4);
+            fs.Write(BitConverter.GetBytes(6 + 16), 0, 4); // Offset to data
+            fs.Write(png, 0, png.Length);
+            return path;
+        }
+        catch (Exception ex)
+        {
+            Services.ConfigService.Log("保存 ICO 失败: " + ex.Message);
+            return null;
+        }
+    }
+
     private static IntPtr ToHIcon(Visual visual, int size)
     {
         var rtb = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
@@ -80,16 +119,32 @@ public static class IconHelper
             Marshal.Copy(dst, 0, ptr, dst.Length);
             var hbm = CreateBitmap(w, h, 1, 32, ptr);
             if (hbm == IntPtr.Zero) return IntPtr.Zero;
+
+            // CreateIconIndirect 需要一张单色 AND 掩码（全 0 表示不透明）。
+            int maskStride = ((w + 31) / 32) * 4;
+            var mask = new byte[maskStride * h];
+            var maskPtr = Marshal.AllocHGlobal(mask.Length);
+            IntPtr hbmMask;
+            try
+            {
+                Marshal.Copy(mask, 0, maskPtr, mask.Length);
+                hbmMask = CreateBitmap(w, h, 1, 1, maskPtr);
+            }
+            finally { Marshal.FreeHGlobal(maskPtr); }
+
+            if (hbmMask == IntPtr.Zero) { DeleteObject(hbm); return IntPtr.Zero; }
+
             var info = new ICONINFO
             {
                 fIcon = 1,
                 xHotspot = 0,
                 yHotspot = 0,
-                hbmMask = IntPtr.Zero,
+                hbmMask = hbmMask,
                 hbmColor = hbm
             };
             var hicon = CreateIconIndirect(ref info);
             DeleteObject(hbm);
+            DeleteObject(hbmMask);
             return hicon;
         }
         finally { Marshal.FreeHGlobal(ptr); }

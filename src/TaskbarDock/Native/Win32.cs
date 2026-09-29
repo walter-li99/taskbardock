@@ -58,6 +58,13 @@ public static class Win32
     [DllImport("shell32.dll", CallingConvention = CallingConvention.StdCall)]
     public static extern IntPtr SHAppBarMessage(int dwMessage, ref APPBARDATA pData);
 
+    public const int SHCNE_ASSOCCHANGED = 0x08000000;
+    public const int SHCNF_IDLIST = 0x0000;
+    public const int SHCNF_PATHW = 0x0005;
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
     [DllImport("user32.dll")]
     public static extern uint RegisterWindowMessage(string lpString);
 

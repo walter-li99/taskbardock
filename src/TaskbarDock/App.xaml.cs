@@ -5,8 +5,10 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Media;
 using Microsoft.Win32;
 using TaskbarDock.Models;
+using TaskbarDock.Native;
 using TaskbarDock.Services;
 using TaskbarDock.Views;
 using WpfForms = System.Windows.Forms;
@@ -25,6 +27,7 @@ public partial class App : Application
 
     private Mutex _mutex;
     private WpfForms.NotifyIcon _tray;
+    private System.Drawing.Icon _trayIcon;
 
     public static readonly List<GroupWindow> Hosts = new();
     public static App Instance => (App)Current;
@@ -57,6 +60,7 @@ public partial class App : Application
         ConfigService.Load();
         ConfigService.Log("启动 " + (Environment.ProcessPath ?? "") + " args=" + string.Join(" ", args));
         ThemeService.Refresh();
+        ThemeService.Changed += OnThemeChanged;
 
         SyncHosts();
         SetupTray();
@@ -147,10 +151,14 @@ public partial class App : Application
         foreach (var h in Hosts) h.Refresh();
     }
 
+    private void OnThemeChanged() => Dispatcher.Invoke(UpdateTrayIcon);
+
     public void RefreshAll()
     {
+        ConfigService.Load();
         foreach (var h in Hosts) h.CloseMenu();
         SyncHosts();
+        UpdateTrayIcon();
     }
 
     // ===== 托盘 =====
@@ -159,16 +167,12 @@ public partial class App : Application
         if (_tray != null) return;
         if (!ConfigService.Config.ShowTrayIcon) return;
 
-        System.Drawing.Icon icon = null;
-        try { icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath); } catch { }
-        icon ??= System.Drawing.SystemIcons.Application;
-
         _tray = new WpfForms.NotifyIcon
         {
-            Icon = icon,
             Text = "任务栏整合",
             Visible = true
         };
+        UpdateTrayIcon();
 
         var menu = new WpfForms.ContextMenuStrip();
         menu.Items.Add("设置…", null, (s, e) => Dispatcher.Invoke(OpenSettings));
@@ -192,6 +196,7 @@ public partial class App : Application
         if (ConfigService.Config.ShowTrayIcon)
         {
             if (_tray == null) SetupTray();
+            else UpdateTrayIcon();
         }
         else if (_tray != null)
         {
@@ -199,6 +204,31 @@ public partial class App : Application
             _tray.Dispose();
             _tray = null;
         }
+    }
+
+    private void UpdateTrayIcon()
+    {
+        if (_tray == null) return;
+        var first = ConfigService.Config.Groups.FirstOrDefault();
+        if (first == null) return;
+
+        var fg = ThemeService.IsLight
+            ? Color.FromRgb(0x1B, 0x1B, 0x1B)
+            : Color.FromRgb(0xF3, 0xF3, 0xF3);
+        var hIcon = IconHelper.Build(first.IconPack, first.IconKey, first.CustomIconPath, fg, 32);
+        if (hIcon == IntPtr.Zero) return;
+
+        try
+        {
+            var icon = System.Drawing.Icon.FromHandle(hIcon);
+            var old = _tray.Icon;
+            _tray.Icon = icon;
+            _trayIcon?.Dispose();
+            _trayIcon = icon;
+            try { old?.Dispose(); } catch { }
+        }
+        catch { }
+        finally { DestroyIcon(hIcon); }
     }
 
     public void OpenSettings()

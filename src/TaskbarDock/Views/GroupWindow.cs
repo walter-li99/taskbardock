@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -114,6 +115,12 @@ public class GroupWindow : Window
         var big = IconHelper.Build(Group.IconPack, Group.IconKey, Group.CustomIconPath, fg, 48);
         if (small == IntPtr.Zero && big == IntPtr.Zero) return;
 
+        // 生成 ICO 文件并设为 RelaunchIconResource，任务栏按钮才能显示动态图标。
+        var iconSource = big != IntPtr.Zero ? big : small;
+        var icoPath = Path.Combine(ConfigService.AppDir, "Icons", Group.Id + ".ico");
+        if (IconHelper.SaveToIco(iconSource, icoPath) != null)
+            WindowProperties.Set(_hwnd, WindowProperties.RelaunchIcon, icoPath);
+
         if (small != IntPtr.Zero)
         {
             SendMessage(_hwnd, WM_SETICON, (IntPtr)ICON_SMALL, small);
@@ -126,6 +133,10 @@ public class GroupWindow : Window
             if (_iconBig != IntPtr.Zero) DestroyIcon(_iconBig);
             _iconBig = big;
         }
+
+        // 强制 Windows Shell 刷新任务栏图标缓存。
+        try { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero); }
+        catch { }
     }
 
     // ===== 消息：把「点击任务栏按钮」转成弹出菜单 =====
@@ -196,23 +207,45 @@ public class GroupWindow : Window
             return;
         }
 
-        double scale = 1.0;
-        try { var d = GetDpiForWindow(_hwnd); if (d > 0) scale = d / 96.0; } catch { }
-
         var (tb, edge) = Taskbar.GetRect();
-        var tbDip = new Rect(tb.left / scale, tb.top / scale, tb.Width / scale, tb.Height / scale);
 
         Rect? anchor = null;
         var btn = Taskbar.FindButton(AppId, Title);
         if (btn.HasValue)
-            anchor = new Rect(btn.Value.X / scale, btn.Value.Y / scale,
-                              btn.Value.Width / scale, btn.Value.Height / scale);
+            anchor = new Rect(btn.Value.X, btn.Value.Y, btn.Value.Width, btn.Value.Height);
 
         var cur = Taskbar.Cursor();
-        var cursorDip = new Point(cur.X / scale, cur.Y / scale);
+        var pt = new Win32.POINT { x = (int)(anchor.HasValue ? anchor.Value.Left + anchor.Value.Width / 2 : cur.X), y = (int)(anchor.HasValue ? anchor.Value.Top + anchor.Value.Height / 2 : cur.Y) };
+        var hmon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        double scale = 1.0;
+        try
+        {
+            if (GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, out var x, out _) == 0 && x > 0)
+                scale = x / 96.0;
+        }
+        catch { }
 
-        _menu = new MenuWindow(Group, items, () => App.Instance?.RefreshAll());
-        _menu.Anchor(anchor, edge, cursorDip, tbDip);
+        var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (GetMonitorInfo(hmon, ref mi))
+        {
+            var waDip = new Rect(mi.rcWork.left / scale, mi.rcWork.top / scale, mi.rcWork.Width / scale, mi.rcWork.Height / scale);
+            var tbDip = new Rect(tb.left / scale, tb.top / scale, tb.Width / scale, tb.Height / scale);
+            var cursorDip = new Point(cur.X / scale, cur.Y / scale);
+            Rect? anchorDip = anchor.HasValue ? new Rect(anchor.Value.X / scale, anchor.Value.Y / scale, anchor.Value.Width / scale, anchor.Value.Height / scale) : null;
+
+            _menu = new MenuWindow(Group, items, () => App.Instance?.RefreshAll());
+            _menu.Anchor(anchorDip, edge, cursorDip, tbDip, waDip);
+        }
+        else
+        {
+            // 降级：用窗口 DPI（可能不准，但不会崩溃）
+            try { var d = GetDpiForWindow(_hwnd); if (d > 0) scale = d / 96.0; } catch { }
+            var tbDip = new Rect(tb.left / scale, tb.top / scale, tb.Width / scale, tb.Height / scale);
+            var cursorDip = new Point(cur.X / scale, cur.Y / scale);
+            Rect? anchorDip = anchor.HasValue ? new Rect(anchor.Value.X / scale, anchor.Value.Y / scale, anchor.Value.Width / scale, anchor.Value.Height / scale) : null;
+            _menu = new MenuWindow(Group, items, () => App.Instance?.RefreshAll());
+            _menu.Anchor(anchorDip, edge, cursorDip, tbDip, SystemParameters.WorkArea);
+        }
         _menu.Closed += (s, a) =>
         {
             _menu = null;

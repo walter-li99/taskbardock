@@ -31,6 +31,7 @@ public partial class MenuWindow : Window
     private Rect? _anchorRect;
     private Point _cursor;
     private Rect _taskbar;
+    private Rect _workArea;
 
     // 拖拽状态
     private bool _pressed, _dragging;
@@ -65,6 +66,7 @@ public partial class MenuWindow : Window
 
         DataContext = this;
         Loaded += OnLoaded;
+        ContentRendered += OnContentRendered;
         Closed += OnClosed;
     }
 
@@ -72,19 +74,19 @@ public partial class MenuWindow : Window
     /// <param name="edge">任务栏所在边缘</param>
     /// <param name="cursor">鼠标位置（逻辑像素），用于兜底定位</param>
     /// <param name="taskbar">任务栏矩形（逻辑像素）</param>
-    public void Anchor(Rect? anchor, int edge, Point cursor, Rect taskbar)
+    /// <param name="workArea">任务栏所在显示器的工作区（逻辑像素）</param>
+    public void Anchor(Rect? anchor, int edge, Point cursor, Rect taskbar, Rect workArea)
     {
         _anchorRect = anchor;
         _edge = edge;
         _cursor = cursor;
         _taskbar = taskbar;
+        _workArea = workArea;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _hwnd = new WindowInteropHelper(this).Handle;
-
-        Position();
 
         try
         {
@@ -106,10 +108,17 @@ public partial class MenuWindow : Window
         InstallHook();
     }
 
+    private void OnContentRendered(object sender, EventArgs e)
+    {
+        ContentRendered -= OnContentRendered;
+        Position();
+    }
+
     private void Position()
     {
         double mw = ActualWidth, mh = ActualHeight;
-        var wa = SystemParameters.WorkArea;
+        var wa = _workArea;
+        const double gap = 6;
 
         double left, top;
         if (_anchorRect.HasValue)
@@ -118,13 +127,13 @@ public partial class MenuWindow : Window
             switch (_edge)
             {
                 case ABE_TOP:
-                    left = a.Left + a.Width / 2 - mw / 2; top = a.Bottom; break;
+                    left = a.Left + a.Width / 2 - mw / 2; top = a.Bottom + gap; break;
                 case ABE_LEFT:
-                    left = a.Right; top = a.Bottom - mh; break;
+                    left = a.Right + gap; top = a.Top + a.Height / 2 - mh / 2; break;
                 case ABE_RIGHT:
-                    left = a.Left - mw; top = a.Bottom - mh; break;
+                    left = a.Left - mw - gap; top = a.Top + a.Height / 2 - mh / 2; break;
                 default:
-                    left = a.Left + a.Width / 2 - mw / 2; top = a.Top - mh; break;
+                    left = a.Left + a.Width / 2 - mw / 2; top = a.Top - mh - gap; break;
             }
         }
         else
@@ -133,18 +142,18 @@ public partial class MenuWindow : Window
             switch (_edge)
             {
                 case ABE_TOP:
-                    left = _cursor.X - mw / 2; top = _taskbar.Bottom; break;
+                    left = _cursor.X - mw / 2; top = _taskbar.Bottom + gap; break;
                 case ABE_LEFT:
-                    left = _taskbar.Right; top = _cursor.Y - mh / 2; break;
+                    left = _taskbar.Right + gap; top = _cursor.Y - mh / 2; break;
                 case ABE_RIGHT:
-                    left = _taskbar.Left - mw; top = _cursor.Y - mh / 2; break;
+                    left = _taskbar.Left - mw - gap; top = _cursor.Y - mh / 2; break;
                 default:
-                    left = _cursor.X - mw / 2; top = _taskbar.Top - mh; break;
+                    left = _cursor.X - mw / 2; top = _taskbar.Top - mh - gap; break;
             }
         }
 
-        left = Math.Max(wa.Left + 4, Math.Min(left, Math.Max(wa.Left + 4, wa.Right - mw - 4)));
-        top = Math.Max(wa.Top + 4, Math.Min(top, Math.Max(wa.Top + 4, wa.Bottom - mh - 4)));
+        left = Math.Max(wa.Left + 4, Math.Min(left, wa.Right - mw - 4));
+        top = Math.Max(wa.Top + 4, Math.Min(top, wa.Bottom - mh - 4));
         Left = left;
         Top = top;
     }
