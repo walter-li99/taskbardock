@@ -1,0 +1,56 @@
+<Window x:Class="TaskbarDock.Views.DockWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:icons="clr-namespace:TaskbarDock.Icons"
+        xmlns:models="clr-namespace:TaskbarDock.Models"
+        Title="TaskbarDock"
+        Width="120" Height="48"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        AllowsTransparency="True"
+        Background="Transparent"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Focusable="False"
+        SourceInitialized="OnSourceInitialized"
+        Closing="OnClosing">
+
+    <Border x:Name="Root" CornerRadius="8" Margin="1"
+            Background="{DynamicResource Br.Taskbar}"
+            BorderBrush="{DynamicResource Br.Border}"
+            BorderThickness="1"
+            SnapsToDevicePixels="True">
+        <ItemsControl x:Name="Bar" ItemsSource="{Binding Groups}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="{x:Type models:DockGroupVm}">
+                    <Button Style="{StaticResource DockButtonStyle}"
+                            Width="{Binding ButtonSize}" Height="{Binding ButtonSize}"
+                            Margin="1,0"
+                            Click="OnGroupClick"
+                            PreviewMouseRightButtonUp="OnGroupRightClick"
+                            Tag="{Binding}">
+                        <Button.ToolTip>
+                            <ToolTip Background="{DynamicResource Br.Menu}"
+                                     BorderBrush="{DynamicResource Br.Border}"
+                                     BorderThickness="1" HasDropShadow="False">
+                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Br.Fg}" FontSize="12"/>
+                            </ToolTip>
+                        </Button.ToolTip>
+                        <icons:PackIcon Pack="{Binding Group.IconPack}"
+                                        IconKey="{Binding Group.IconKey}"
+                                        CustomPath="{Binding Group.CustomIconPath}"
+                                        IconSize="{Binding IconSize}"
+                                        Foreground="{DynamicResource Br.Fg}"/>
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Border>
+</Window>

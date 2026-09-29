@@ -1,0 +1,6 @@
+dist/
+test-shortcuts/
+*.user
+.vs/
+bin/
+obj/
