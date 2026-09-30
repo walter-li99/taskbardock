@@ -17,12 +17,13 @@ namespace TaskbarDock.Views;
 /// </summary>
 public class GroupWindow : Window
 {
-    public DockGroup Group { get; }
+    public DockGroup Group { get; internal set; }
 
     private IntPtr _hwnd = IntPtr.Zero;
     private HwndSource _src;
     private MenuWindow _menu;
     private IntPtr _iconSmall = IntPtr.Zero, _iconBig = IntPtr.Zero;
+    private string _iconSig;
     private bool _suppress;
     private bool _closed;
     private DateTimeOffset _lastClose = DateTimeOffset.MinValue;
@@ -94,6 +95,14 @@ public class GroupWindow : Window
         UpdateIcon();
     }
 
+    /// <summary>强制重建任务栏图标并通知 Shell 刷新（仅用户手动触发时使用，
+    /// 因为 Shell 级通知会让整个桌面的图标重载一次）。</summary>
+    public void RebuildIcon()
+    {
+        _iconSig = null;
+        UpdateIcon(true);
+    }
+
     private void ApplyAppId()
     {
         if (_hwnd == IntPtr.Zero) return;
@@ -104,9 +113,17 @@ public class GroupWindow : Window
             "\"" + exe + "\" --menu " + id);
     }
 
-    public void UpdateIcon()
+    public void UpdateIcon(bool notifyShell = false)
     {
         if (_hwnd == IntPtr.Zero || _closed) return;
+
+        // 图标没变（包/键/自定义路径/明暗主题都没变）时什么都不做，
+        // 避免设置窗口每次“应用”都触发图标重建与 Shell 刷新。
+        var sig = Group.IconPack + "|" + Group.IconKey + "|" + (Group.CustomIconPath ?? "")
+                  + "|" + (ThemeService.IsLight ? "L" : "D");
+        if (sig == _iconSig && !notifyShell) return;
+        _iconSig = sig;
+
         var fg = ThemeService.IsLight
             ? Color.FromRgb(0x1B, 0x1B, 0x1B)
             : Color.FromRgb(0xF3, 0xF3, 0xF3);
@@ -134,9 +151,13 @@ public class GroupWindow : Window
             _iconBig = big;
         }
 
-        // 强制 Windows Shell 刷新任务栏图标缓存。
-        try { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero); }
-        catch { }
+        // 仅在用户手动“重建任务栏图标”时才发 Shell 通知——
+        // SHCNE_ASSOCCHANGED 会让整个桌面的图标重载一次，不能在每次应用设置时都发。
+        if (notifyShell)
+        {
+            try { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero); }
+            catch { }
+        }
     }
 
     // ===== 消息：把「点击任务栏按钮」转成弹出菜单 =====
@@ -172,7 +193,7 @@ public class GroupWindow : Window
         }
         else if (msg == WM_DPICHANGED || msg == WM_DISPLAYCHANGE)
         {
-            Dispatcher.BeginInvoke(new Action(UpdateIcon));
+            Dispatcher.BeginInvoke(new Action(() => { _iconSig = null; UpdateIcon(); }));
         }
         return IntPtr.Zero;
     }

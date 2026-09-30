@@ -104,6 +104,28 @@ public class PackIcon : ContentControl
             VerticalAlignment = VerticalAlignment.Center
         };
 
+        if (pack.Badge)
+        {
+            // 彩色徽章：系统强调色圆角底 + 按亮度自动选黑/白前景
+            var bgBrush = TryFindResource("Br.Accent") as SolidColorBrush
+                ?? new SolidColorBrush(Color.FromRgb(0, 0x78, 0xD4));
+            var c = bgBrush.Color;
+            double lum = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
+            path.Fill = lum > 0.62 ? Brushes.Black : Brushes.White;
+
+            var grid = new Grid { Width = IconSize, Height = IconSize };
+            grid.Children.Add(new Border
+            {
+                Background = bgBrush,
+                CornerRadius = new CornerRadius(IconSize * 0.28)
+            });
+            path.Width = IconSize * 0.56;
+            path.Height = IconSize * 0.56;
+            grid.Children.Add(path);
+            Content = grid;
+            return;
+        }
+
         if (pack.Filled) BindFg(Shape.FillProperty, path);
         else
         {

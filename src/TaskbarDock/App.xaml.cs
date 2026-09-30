@@ -26,6 +26,7 @@ public partial class App : Application
     public const int CmdRefresh = 4;
 
     private Mutex _mutex;
+    private bool _primary;          // 是否为持有单实例锁的主实例（只有主实例才能在退出时保存配置）
     private WpfForms.NotifyIcon _tray;
     private System.Drawing.Icon _trayIcon;
 
@@ -41,6 +42,7 @@ public partial class App : Application
         var (cmd, groupId) = ParseArgs(args);
 
         _mutex = new Mutex(true, @"Global\TaskbarDock.SingleInstance", out var created);
+        _primary = created;
         if (!created)
         {
             if (cmd != 0)
@@ -126,7 +128,7 @@ public partial class App : Application
     }
 
     // ===== 任务栏按钮（每个分组一个） =====
-    public static void SyncHosts()
+    public static void SyncHosts(bool rebuildIcons = false)
     {
         var cfg = ConfigService.Config.Groups;
 
@@ -148,16 +150,23 @@ public partial class App : Application
             host.Show();
         }
 
-        foreach (var h in Hosts) h.Refresh();
+        foreach (var h in Hosts)
+        {
+            // SyncHosts 可能由 RefreshAll 调用（配置已重新加载）：
+            // 必须把窗口引用的分组对象换成新配置里的实例，否则刷新的是旧数据。
+            h.Group = cfg.First(g => g.Id == h.Group.Id);
+            if (rebuildIcons) h.RebuildIcon();
+            else h.Refresh();
+        }
     }
 
     private void OnThemeChanged() => Dispatcher.Invoke(UpdateTrayIcon);
 
-    public void RefreshAll()
+    public void RefreshAll(bool rebuildIcons = false)
     {
         ConfigService.Load();
         foreach (var h in Hosts) h.CloseMenu();
-        SyncHosts();
+        SyncHosts(rebuildIcons);
         UpdateTrayIcon();
     }
 
@@ -176,7 +185,7 @@ public partial class App : Application
 
         var menu = new WpfForms.ContextMenuStrip();
         menu.Items.Add("设置…", null, (s, e) => Dispatcher.Invoke(OpenSettings));
-        menu.Items.Add("重建任务栏图标", null, (s, e) => Dispatcher.Invoke(RefreshAll));
+        menu.Items.Add("重建任务栏图标", null, (s, e) => Dispatcher.Invoke(() => RefreshAll(true)));
         menu.Items.Add("打开配置目录", null, (s, e) =>
         {
             try { Process.Start("explorer.exe", ConfigService.AppDir); } catch { }
@@ -279,7 +288,7 @@ public partial class App : Application
         try
         {
             _tray?.Dispose();
-            ConfigService.Save();
+            if (_primary) ConfigService.Save();   // 转发实例绝不能写配置，否则会用默认值覆盖真实配置
         }
         catch { }
         base.OnExit(e);

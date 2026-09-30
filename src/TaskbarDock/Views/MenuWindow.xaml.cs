@@ -37,7 +37,7 @@ public partial class MenuWindow : Window
     private bool _pressed, _dragging;
     private Point _start;
     private ShortcutItem _dragItem;
-    private Popup _ghost;
+    private Window _ghost;
 
     // 外部点击关闭
     private IntPtr _hookId = IntPtr.Zero;
@@ -161,6 +161,12 @@ public partial class MenuWindow : Window
     private void OnClosed(object sender, EventArgs e)
     {
         UninstallHook();
+        if (_ghost != null)
+        {
+            var g = _ghost;
+            _ghost = null;
+            try { g.Close(); } catch { }
+        }
         SaveOrder();
     }
 
@@ -282,9 +288,9 @@ public partial class MenuWindow : Window
         return (d as ListBoxItem)?.DataContext as ShortcutItem;
     }
 
-    private void ShowGhost(Point screen)
+    private void ShowGhost(Point screenPhysical)
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, IsHitTestVisible = false };
         if (_dragItem.Icon != null)
             panel.Children.Add(new Image
             {
@@ -301,9 +307,18 @@ public partial class MenuWindow : Window
             Foreground = (Brush)TryFindResource("Br.Fg")
         });
 
-        _ghost = new Popup
+        _ghost = new Window
         {
-            Child = new Border
+            WindowStyle = WindowStyle.None,
+            ResizeMode = ResizeMode.NoResize,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            Topmost = true,
+            IsHitTestVisible = false,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Content = new Border
             {
                 Child = panel,
                 Background = (Brush)TryFindResource("Br.Menu"),
@@ -312,26 +327,37 @@ public partial class MenuWindow : Window
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(10, 6, 10, 6),
                 Opacity = 0.92
-            },
-            Placement = PlacementMode.Absolute,
-            IsHitTestVisible = false,
-            AllowsTransparency = true,
-            HorizontalOffset = screen.X + 8,
-            VerticalOffset = screen.Y + 8
+            }
         };
-        _ghost.IsOpen = true;
+        // PointToScreen 返回物理像素，Window.Left/Top 是逻辑像素（DIP），必须除以 DPI 缩放，
+        // 否则高 DPI 屏上跟随框会跑到屏幕右下角。
+        MoveGhost(screenPhysical);
+        _ghost.Show();
+        MoveGhost(screenPhysical);
     }
 
-    private void MoveGhost(Point screen)
+    private double ScreenScale()
+    {
+        try { var d = GetDpiForWindow(_hwnd); if (d > 0) return d / 96.0; } catch { }
+        return 1.0;
+    }
+
+    private void MoveGhost(Point screenPhysical)
     {
         if (_ghost == null) return;
-        _ghost.HorizontalOffset = screen.X + 8;
-        _ghost.VerticalOffset = screen.Y + 8;
+        double s = ScreenScale();
+        _ghost.Left = screenPhysical.X / s + 12;
+        _ghost.Top = screenPhysical.Y / s + 12;
     }
 
     private void EndDrag()
     {
-        if (_ghost != null) { _ghost.IsOpen = false; _ghost = null; }
+        if (_ghost != null)
+        {
+            var g = _ghost;
+            _ghost = null;
+            try { g.Close(); } catch { }
+        }
         if (_dragItem != null) _dragItem.IsDragging = false;
         if (List.IsMouseCaptured) List.ReleaseMouseCapture();
         _dragging = false;
