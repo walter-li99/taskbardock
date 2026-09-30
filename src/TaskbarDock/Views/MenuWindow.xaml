@@ -16,14 +16,13 @@
         Deactivated="OnDeactivated">
 
     <Grid>
-        <Border x:Name="Root" Margin="14"
+        <!-- Margin/阴影去掉：DropShadowEffect 在 AllowTransparency 窗口边缘会产生直角轮廓，
+             所以这里完全不要外阴影，保持纯圆角卡片。 -->
+        <Border x:Name="Root" Margin="0"
                 CornerRadius="10"
                 Background="{DynamicResource Br.Menu}"
                 BorderThickness="0"
                 SnapsToDevicePixels="True">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="22" ShadowDepth="0" Opacity="0.38" Color="#FF000000" Direction="270"/>
-            </Border.Effect>
 
             <ListBox x:Name="List"
                      Style="{StaticResource CleanListBox}"

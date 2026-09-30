@@ -63,6 +63,10 @@ public partial class MenuWindow : Window
         MaxWidth = cfg.MenuWidth;
         MaxHeight = Math.Min(cfg.MenuMaxHeight + 40, SystemParameters.WorkArea.Height - 24);
         Opacity = 0;
+        // 初始放到屏幕外，等 ContentRendered 定位完成后再移回目标位置，
+        // 彻底消除点击瞬间在左上角闪现的问题。
+        Left = -32000;
+        Top = -32000;
 
         DataContext = this;
         Loaded += OnLoaded;
@@ -325,8 +329,7 @@ public partial class MenuWindow : Window
             {
                 Child = panel,
                 Background = (Brush)TryFindResource("Br.Menu"),
-                BorderBrush = (Brush)TryFindResource("Br.Border"),
-                BorderThickness = new Thickness(1),
+                BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(10, 6, 10, 6),
                 Opacity = 0.92
