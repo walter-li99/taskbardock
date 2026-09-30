@@ -19,8 +19,7 @@
         <Border x:Name="Root" Margin="14"
                 CornerRadius="10"
                 Background="{DynamicResource Br.Menu}"
-                BorderBrush="{DynamicResource Br.Border}"
-                BorderThickness="1"
+                BorderThickness="0"
                 SnapsToDevicePixels="True">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="22" ShadowDepth="0" Opacity="0.38" Color="#FF000000" Direction="270"/>

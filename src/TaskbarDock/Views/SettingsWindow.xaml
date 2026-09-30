@@ -47,8 +47,7 @@
     <Grid Background="Transparent" MouseLeftButtonDown="OnWindowDrag">
     <Border Margin="12" CornerRadius="12"
             Background="{DynamicResource Br.Menu}"
-            BorderBrush="{DynamicResource Br.Border}"
-            BorderThickness="1" SnapsToDevicePixels="True">
+            BorderThickness="0" SnapsToDevicePixels="True">
         <Border.Effect>
             <DropShadowEffect BlurRadius="26" ShadowDepth="0" Opacity="0.42"/>
         </Border.Effect>

@@ -200,6 +200,13 @@ public static class IconPacks
             Glyphs = new Dictionary<string, string>()
         },
 
+        // 全新风格：手机 UI 风——圆角渐变彩色方块 + 白色实心图形（彩色、实心、非线稿）
+        new IconPackDef
+        {
+            Id = "phone", DisplayName = "Phone (彩色应用图标)", Kind = "Phone", Filled = true,
+            StrokeThickness = 0, Glyphs = new Dictionary<string, string>()
+        },
+
         new IconPackDef
         {
             Id = "emoji", DisplayName = "Emoji (彩色)", Kind = "Emoji",

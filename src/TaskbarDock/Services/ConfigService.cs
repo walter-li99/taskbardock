@@ -45,7 +45,7 @@ public static class ConfigService
             Config.Groups.Add(new DockGroup
             {
                 Name = "我的工具",
-                Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop")
+                Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "程序图标")
             });
         }
     }

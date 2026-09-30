@@ -89,6 +89,13 @@ public class PackIcon : ContentControl
             return;
         }
 
+        if (pack.Kind == "Phone")
+        {
+            // 手机 UI 风格：彩色渐变方块 + 白色图形，整体由 PhoneIconFactory 绘制
+            var ui = PhoneIconFactory.Build(IconKey, IconSize);
+            if (ui != null) { Content = ui; return; }
+        }
+
         // 矢量包
         Geometry geo;
         try { geo = Geometry.Parse(glyph); }

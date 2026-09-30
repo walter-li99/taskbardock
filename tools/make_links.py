@@ -60,7 +60,7 @@ def make_lnk(path, target, description=""):
 
 def main():
     folder = sys.argv[1] if len(sys.argv) > 1 else \
-        r"C:\Users\Ainuc\WorkBuddy\任务栏整合\test-shortcuts"
+        os.path.join(os.environ.get("USERPROFILE", os.path.expanduser("~")), "Desktop", "程序图标")
     os.makedirs(folder, exist_ok=True)
     items = [
         ("记事本", r"C:\Windows\System32\notepad.exe"),

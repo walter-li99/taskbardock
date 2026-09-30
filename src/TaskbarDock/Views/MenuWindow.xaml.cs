@@ -95,15 +95,8 @@ public partial class MenuWindow : Window
         }
         catch { }
 
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
-        BeginAnimation(OpacityProperty, fade);
-
-        var tr = new TranslateTransform();
-        RenderTransform = tr;
-        var slide = new DoubleAnimation(_edge == ABE_TOP ? -8 : 8, 0, TimeSpan.FromMilliseconds(160))
-        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        tr.BeginAnimation(TranslateTransform.YProperty, slide);
-
+        // 注意：淡入动画放到 OnContentRendered 里、定位之后再做，
+        // 否则窗口会先在默认位置（屏幕左上角）闪一下，再跳到图标上方。
         Activate();
         InstallHook();
     }
@@ -112,6 +105,16 @@ public partial class MenuWindow : Window
     {
         ContentRendered -= OnContentRendered;
         Position();
+
+        // 先定位、再淡入 + 滑入，彻底消除左上角闪现
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
+        BeginAnimation(OpacityProperty, fade);
+
+        var tr = new TranslateTransform();
+        RenderTransform = tr;
+        var slide = new DoubleAnimation(_edge == ABE_TOP ? -8 : 8, 0, TimeSpan.FromMilliseconds(160))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        tr.BeginAnimation(TranslateTransform.YProperty, slide);
     }
 
     private void Position()
