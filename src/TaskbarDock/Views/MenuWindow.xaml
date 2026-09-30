@@ -22,12 +22,16 @@
                 CornerRadius="10"
                 Background="{DynamicResource Br.Menu}"
                 BorderThickness="0"
+                Padding="4"
+                ClipToBounds="True"
                 SnapsToDevicePixels="True">
 
             <ListBox x:Name="List"
                      Style="{StaticResource CleanListBox}"
                      ItemsSource="{Binding Items}"
-                     Margin="4"
+                     Margin="0"
+                     Background="Transparent"
+                     BorderThickness="0"
                      MaxHeight="{Binding MenuMaxHeight}"
                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                      PreviewMouseLeftButtonDown="OnDown"
