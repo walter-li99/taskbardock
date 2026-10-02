@@ -44,6 +44,13 @@ public partial class SettingsWindow : Window
             GroupList.SelectedIndex = Math.Min(Groups.Count - 1, Math.Max(0, GroupList.SelectedIndex));
     }
 
+    /// <summary>选中指定分组（新建分组后调用）。</summary>
+    public void SelectGroup(string id)
+    {
+        for (int i = 0; i < Groups.Count; i++)
+            if (Groups[i].Id == id) { GroupList.SelectedIndex = i; return; }
+    }
+
     // ===== 全局设置 =====
     private void LoadGlobals()
     {
@@ -125,18 +132,20 @@ public partial class SettingsWindow : Window
             {
                 _cur.IconKey = (string)((Button)s).Tag;
                 BuildIconGrid();
+                TouchVm();
                 ApplyLive();
             };
             IconGrid.Children.Add(btn);
         }
     }
 
+    private void TouchVm() => (GroupList.SelectedItem as DockGroupVm)?.Refresh();
+
     private void OnNameChanged(object sender, TextChangedEventArgs e)
     {
         if (_loading || _cur == null) return;
         _cur.Name = NameBox.Text;
-        var vm = GroupList.SelectedItem as DockGroupVm;
-        if (vm != null) vm.OnPropertyChanged(nameof(vm.Name));
+        TouchVm();
         ApplyLive();
     }
 
@@ -144,6 +153,7 @@ public partial class SettingsWindow : Window
     {
         if (_loading || _cur == null) return;
         _cur.Folder = FolderBox.Text;
+        TouchVm();
         ApplyLive();
     }
 
@@ -154,6 +164,7 @@ public partial class SettingsWindow : Window
         {
             _cur.IconPack = id;
             BuildIconGrid();
+            TouchVm();
             ApplyLive();
         }
     }
@@ -162,6 +173,7 @@ public partial class SettingsWindow : Window
     {
         if (_loading || _cur == null) return;
         _cur.CustomIconPath = CustomIconBox.Text;
+        TouchVm();
         ApplyLive();
     }
 
@@ -197,15 +209,43 @@ public partial class SettingsWindow : Window
 
     private void OnAddGroup(object sender, RoutedEventArgs e)
     {
-        var g = new DockGroup
-        {
-            Name = "新分组 " + (ConfigService.Config.Groups.Count + 1),
-            Folder = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
-        };
-        ConfigService.Config.Groups.Add(g);
+        // 每个分组 = 任务栏上一个独立图标，创建时先问清楚它对应哪个文件夹
+        var g = App.Instance?.NewGroup(pickFolder: true);
         RebuildGroupList();
-        GroupList.SelectedIndex = Groups.Count - 1;
+        if (g != null) SelectGroup(g.Id);
+        else if (Groups.Count > 0) GroupList.SelectedIndex = Groups.Count - 1;
         ApplyLive();
+    }
+
+    private void OnMoveUp(object sender, RoutedEventArgs e) => MoveGroup(-1);
+    private void OnMoveDown(object sender, RoutedEventArgs e) => MoveGroup(1);
+
+    private void MoveGroup(int delta)
+    {
+        if (_cur == null) return;
+        var list = ConfigService.Config.Groups;
+        int i = list.IndexOf(_cur);
+        if (i < 0) return;
+        int j = i + delta;
+        if (j < 0 || j >= list.Count) return;
+
+        list[i] = list[j];
+        list[j] = _cur;
+        RebuildGroupList();
+        GroupList.SelectedIndex = j;
+        ApplyLive();
+    }
+
+    private void OnOpenGroupFolder(object sender, RoutedEventArgs e)
+    {
+        if (_cur == null) return;
+        App.OpenFolder(_cur.Folder);
+    }
+
+    private void OnPreviewGroup(object sender, RoutedEventArgs e)
+    {
+        if (_cur == null) return;
+        App.Instance?.OpenMenu(_cur.Id);
     }
 
     private void OnDelGroup(object sender, RoutedEventArgs e)

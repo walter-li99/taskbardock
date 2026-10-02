@@ -49,6 +49,7 @@ public partial class MenuWindow : Window
         InitializeComponent();
         _group = group;
         _onRefresh = onRefresh;
+        Title = "MenuWindow - " + group.Name;   // 多个图标时便于区分是哪个分组的菜单
 
         var cfg = ConfigService.Config;
         ItemIconSize = cfg.ShowItemIcons ? cfg.ItemIconSize : 0;
@@ -273,6 +274,14 @@ public partial class MenuWindow : Window
 
     private void Launch(ShortcutItem item)
     {
+        // 目录为空时的占位项：点它就是打开/创建该分组的文件夹
+        if (item.Id == GroupWindow.PlaceholderId)
+        {
+            App.OpenFolder(item.FilePath);
+            Close();
+            return;
+        }
+
         try { ShortcutService.Launch(item); }
         catch (Exception ex) { ConfigService.Log("启动失败: " + ex.Message); }
     }
@@ -376,7 +385,10 @@ public partial class MenuWindow : Window
     {
         try
         {
-            _group.Order = Items.Select(x => x.Id).ToList();
+            _group.Order = Items
+                .Where(x => x.Id != GroupWindow.PlaceholderId)
+                .Select(x => x.Id)
+                .ToList();
             ConfigService.Save();
         }
         catch (Exception ex)
@@ -398,6 +410,15 @@ public partial class MenuWindow : Window
             var mi = new MenuItem { Header = header, FontSize = 13 };
             mi.Click += (s, a) => act();
             menu.Items.Add(mi);
+        }
+
+        if (item.Id == GroupWindow.PlaceholderId)
+        {
+            Add("打开文件夹", () => App.OpenFolder(item.FilePath));
+            menu.PlacementTarget = List;
+            menu.IsOpen = true;
+            e.Handled = true;
+            return;
         }
 
         Add("打开所在目录", () =>

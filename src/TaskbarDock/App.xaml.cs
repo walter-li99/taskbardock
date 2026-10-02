@@ -29,9 +29,21 @@ public partial class App : Application
     private bool _primary;          // 是否为持有单实例锁的主实例（只有主实例才能在退出时保存配置）
     private WpfForms.NotifyIcon _tray;
     private System.Drawing.Icon _trayIcon;
+    private CommandWindow _cmdWindow;
+
+    // 命令去重：广播会被每个分组窗口各收到一次，同一个「命令+分组」短时间内只执行一次
+    private long _lastCmdTick;
+    private string _lastCmdSig;
 
     public static readonly List<GroupWindow> Hosts = new();
     public static App Instance => (App)Current;
+
+    /// <summary>新建分组时轮换使用的图标，保证每个任务栏图标长得不一样。</summary>
+    private static readonly string[] DefaultIconKeys =
+    {
+        "folder", "box", "layers", "grid", "star", "heart",
+        "cloud", "game", "music", "code", "tag", "camera"
+    };
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -46,7 +58,11 @@ public partial class App : Application
         if (!created)
         {
             if (cmd != 0)
-                PostMessage(HWND_BROADCAST, CmdMessage, (IntPtr)cmd, IntPtr.Zero);
+            {
+                // 精确转发（带分组 Id）优先；找不到接收窗口才退化成广播（会丢失分组 Id）
+                if (!CommandWindow.TryForward(cmd, groupId))
+                    PostMessage(HWND_BROADCAST, CmdMessage, (IntPtr)cmd, IntPtr.Zero);
+            }
             Shutdown();
             return;
         }
@@ -63,6 +79,10 @@ public partial class App : Application
         ConfigService.Log("启动 " + (Environment.ProcessPath ?? "") + " args=" + string.Join(" ", args));
         ThemeService.Refresh();
         ThemeService.Changed += OnThemeChanged;
+
+        // 命令接收窗口要先建好，其它实例才能把带分组 Id 的命令送进来
+        _cmdWindow = new CommandWindow();
+        _cmdWindow.Start();
 
         SyncHosts();
         SetupTray();
@@ -110,6 +130,13 @@ public partial class App : Application
 
     public void HandleCommand(int cmd, string groupId)
     {
+        // 广播会被每个分组窗口各收到一次；同一条命令短时间内重复到达只执行一次
+        var sig = cmd + "|" + (groupId ?? "");
+        var tick = Environment.TickCount64;
+        if (sig == _lastCmdSig && tick - _lastCmdTick < 400) return;
+        _lastCmdSig = sig;
+        _lastCmdTick = tick;
+
         switch (cmd)
         {
             case CmdSettings: OpenSettings(); break;
@@ -119,12 +146,82 @@ public partial class App : Application
         }
     }
 
+    /// <summary>打开某个分组的菜单；同一时刻只保留一个菜单。</summary>
     public void OpenMenu(string groupId = null)
     {
         var host = string.IsNullOrEmpty(groupId)
             ? Hosts.FirstOrDefault()
             : Hosts.FirstOrDefault(h => h.Group.Id == groupId) ?? Hosts.FirstOrDefault();
-        host?.OpenMenu();
+        if (host == null) return;
+
+        CloseMenusExcept(host);
+
+        if (host.IsMenuOpen) host.CloseMenu();
+        else host.OpenMenu();
+    }
+
+    /// <summary>关掉除 keep 之外的所有分组菜单：多图标时同时只允许一个菜单展开。</summary>
+    public void CloseMenusExcept(GroupWindow keep)
+    {
+        foreach (var h in Hosts)
+            if (!ReferenceEquals(h, keep)) h.CloseMenu();
+    }
+
+    // ===== 分组管理（一个分组 = 一个任务栏图标） =====
+    public static string DockRoot =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "TaskbarDock");
+
+    /// <summary>新建一个分组：任务栏上会立刻多出一个图标，对应用户选择的文件夹。</summary>
+    public DockGroup NewGroup(bool pickFolder = false, bool showTip = false)
+    {
+        var cfg = ConfigService.Config;
+        var name = "新分组 " + (cfg.Groups.Count + 1);
+
+        string folder = null;
+        if (pickFolder)
+        {
+            using var dlg = new WpfForms.FolderBrowserDialog
+            {
+                Description = "为新的任务栏图标选择一个文件夹（里面的快捷方式就是菜单项）",
+                UseDescriptionForTitle = true,
+                SelectedPath = Directory.Exists(DockRoot) ? DockRoot : DockRoot
+            };
+            if (dlg.ShowDialog() == WpfForms.DialogResult.OK) folder = dlg.SelectedPath;
+        }
+
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            folder = Path.Combine(DockRoot, name);
+            try { Directory.CreateDirectory(folder); } catch { }
+        }
+
+        var g = new DockGroup
+        {
+            Name = name,
+            Folder = folder,
+            IconPack = "badge",
+            IconKey = NextIconKey(cfg.Groups)
+        };
+
+        cfg.Groups.Add(g);
+        ConfigService.Save();
+        SyncHosts();
+        RefreshTray();
+        ConfigService.Log("新建分组: " + name + " -> " + folder);
+
+        if (showTip)
+            MessageBox.Show("已创建任务栏图标「" + name + "」。\n\n右键该图标 →「固定到任务栏」，它就会一直留在任务栏上。",
+                "任务栏整合", MessageBoxButton.OK, MessageBoxImage.Information);
+
+        return g;
+    }
+
+    private static string NextIconKey(IEnumerable<DockGroup> existing)
+    {
+        var used = new HashSet<string>(existing.Select(g => g.IconKey), StringComparer.OrdinalIgnoreCase);
+        foreach (var k in DefaultIconKeys)
+            if (!used.Contains(k)) return k;
+        return DefaultIconKeys[existing.Count() % DefaultIconKeys.Length];
     }
 
     // ===== 任务栏按钮（每个分组一个） =====
@@ -154,10 +251,16 @@ public partial class App : Application
         {
             // SyncHosts 可能由 RefreshAll 调用（配置已重新加载）：
             // 必须把窗口引用的分组对象换成新配置里的实例，否则刷新的是旧数据。
-            h.Group = cfg.First(g => g.Id == h.Group.Id);
+            var fresh = cfg.FirstOrDefault(g => g.Id == h.Group.Id);
+            if (fresh != null) h.Group = fresh;
             if (rebuildIcons) h.RebuildIcon();
             else h.Refresh();
         }
+
+        // 保持 Hosts 与配置顺序一致：列表里的先后顺序就是任务栏图标的创建顺序，
+        // 缺省分组（不指定 Id 时打开的）也取第一个。
+        Hosts.Sort((a, b) => cfg.FindIndex(g => g.Id == a.Group.Id)
+                                 .CompareTo(cfg.FindIndex(g => g.Id == b.Group.Id)));
     }
 
     private void OnThemeChanged() => Dispatcher.Invoke(UpdateTrayIcon);
@@ -168,6 +271,7 @@ public partial class App : Application
         foreach (var h in Hosts) h.CloseMenu();
         SyncHosts(rebuildIcons);
         UpdateTrayIcon();
+        BuildTrayMenu();
     }
 
     // ===== 托盘 =====
@@ -182,8 +286,33 @@ public partial class App : Application
             Visible = true
         };
         UpdateTrayIcon();
+        BuildTrayMenu();
+        _tray.MouseClick += (s, e) =>
+        {
+            if (e.Button == WpfForms.MouseButtons.Left)
+                Dispatcher.Invoke(() => OpenMenu());
+        };
+    }
+
+    /// <summary>（重新）生成托盘右键菜单：每个分组一项，可直接展开对应菜单。</summary>
+    public void BuildTrayMenu()
+    {
+        if (_tray == null) return;
 
         var menu = new WpfForms.ContextMenuStrip();
+        foreach (var g in ConfigService.Config.Groups)
+        {
+            var id = g.Id;
+            menu.Items.Add("打开「" + g.Name + "」菜单", null,
+                (s, e) => Dispatcher.Invoke(() => OpenMenu(id)));
+        }
+        menu.Items.Add(new WpfForms.ToolStripSeparator());
+        menu.Items.Add("新建任务栏图标…", null, (s, e) => Dispatcher.Invoke(() =>
+        {
+            var g = NewGroup(pickFolder: true, showTip: true);
+            OpenSettings();
+            (Current.Windows.OfType<SettingsWindow>().FirstOrDefault())?.SelectGroup(g.Id);
+        }));
         menu.Items.Add("设置…", null, (s, e) => Dispatcher.Invoke(OpenSettings));
         menu.Items.Add("重建任务栏图标", null, (s, e) => Dispatcher.Invoke(() => RefreshAll(true)));
         menu.Items.Add("打开配置目录", null, (s, e) =>
@@ -192,12 +321,22 @@ public partial class App : Application
         });
         menu.Items.Add(new WpfForms.ToolStripSeparator());
         menu.Items.Add("退出", null, (s, e) => Dispatcher.Invoke(ShutdownApp));
+
+        var old = _tray.ContextMenuStrip;
         _tray.ContextMenuStrip = menu;
-        _tray.MouseClick += (s, e) =>
+        try { old?.Dispose(); } catch { }
+    }
+
+    /// <summary>新建分组后打开它所在的文件夹，方便直接往里放快捷方式。</summary>
+    public static void OpenFolder(string path)
+    {
+        try
         {
-            if (e.Button == WpfForms.MouseButtons.Left)
-                Dispatcher.Invoke(() => OpenMenu());
-        };
+            if (string.IsNullOrWhiteSpace(path)) return;
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            Process.Start("explorer.exe", path);
+        }
+        catch { }
     }
 
     public void RefreshTray()
@@ -205,7 +344,7 @@ public partial class App : Application
         if (ConfigService.Config.ShowTrayIcon)
         {
             if (_tray == null) SetupTray();
-            else UpdateTrayIcon();
+            else { UpdateTrayIcon(); BuildTrayMenu(); }
         }
         else if (_tray != null)
         {
@@ -276,6 +415,7 @@ public partial class App : Application
         {
             foreach (var h in Hosts.ToList()) h.Close();
             Hosts.Clear();
+            if (_cmdWindow != null) { _cmdWindow.Close(); _cmdWindow = null; }
             _tray?.Dispose();
             _tray = null;
         }

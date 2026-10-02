@@ -12,6 +12,19 @@ public class DockGroupVm : INotifyPropertyChanged
     public string Id => Group.Id;
     public string Name => Group.Name;
     public string Folder => Group.Folder;
+    public string IconPack => Group.IconPack;
+    public string IconKey => Group.IconKey;
+    public string CustomPath => Group.CustomIconPath;
+
+    /// <summary>图标或目录改了之后刷新列表里的显示。</summary>
+    public void Refresh()
+    {
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Folder));
+        OnPropertyChanged(nameof(IconPack));
+        OnPropertyChanged(nameof(IconKey));
+        OnPropertyChanged(nameof(CustomPath));
+    }
 
     private double _buttonSize = 36;
     public double ButtonSize { get => _buttonSize; set { _buttonSize = value; OnPropertyChanged(); } }

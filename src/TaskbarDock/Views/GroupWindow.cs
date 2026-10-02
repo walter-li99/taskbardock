@@ -19,6 +19,9 @@ public class GroupWindow : Window
 {
     public DockGroup Group { get; internal set; }
 
+    /// <summary>目录为空时占位显示的项目 Id（不会写进排序记录）。</summary>
+    public const string PlaceholderId = "__open_folder__";
+
     private IntPtr _hwnd = IntPtr.Zero;
     private HwndSource _src;
     private MenuWindow _menu;
@@ -220,12 +223,22 @@ public class GroupWindow : Window
     public void OpenMenu()
     {
         if (_closed) return;
+
+        // 多图标时同时只允许一个菜单展开
+        App.Instance?.CloseMenusExcept(this);
+
         var items = ShortcutService.Scan(Group.Folder, Group);
         if (items.Count == 0)
         {
-            ConfigService.Log("分组「" + Group.Name + "」没有可用快捷方式: " + Group.Folder);
-            App.Instance?.OpenSettings();
-            return;
+            // 目录为空（或不存在）时不再甩到设置窗口，直接在菜单里给一条可点击的提示
+            var exists = Directory.Exists(Group.Folder);
+            items.Add(new ShortcutItem
+            {
+                Id = PlaceholderId,
+                DisplayName = exists ? "文件夹是空的，点击打开它" : "文件夹不存在，点击创建它",
+                FilePath = Group.Folder,
+                TargetPath = Group.Folder
+            });
         }
 
         var (tb, edge) = Taskbar.GetRect();
@@ -273,6 +286,7 @@ public class GroupWindow : Window
             _lastClose = DateTimeOffset.UtcNow;
         };
         _menu.Show();
+        ConfigService.Log("展开菜单: " + Group.Name + " (" + items.Count + " 项)");
     }
 
     public void CloseMenu()
