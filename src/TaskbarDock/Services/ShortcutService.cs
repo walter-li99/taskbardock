@@ -68,28 +68,43 @@ public static class ShortcutService
         var list = new List<ShortcutItem>();
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return list;
 
+        var cfg = ConfigService.Config;
         var files = new List<string>();
+        var dirs = new List<string>();
         try
         {
-            files.AddRange(Directory.GetFiles(folder, "*.lnk", SearchOption.TopDirectoryOnly));
-            files.AddRange(Directory.GetFiles(folder, "*.url", SearchOption.TopDirectoryOnly));
-            files.AddRange(Directory.GetFiles(folder, "*.exe", SearchOption.TopDirectoryOnly));
-            files.AddRange(Directory.GetFiles(folder, "*.appref-ms", SearchOption.TopDirectoryOnly));
+            // 默认显示文件夹里的所有文件；关闭该选项时才只认快捷方式和程序
+            if (cfg.ShowAllFiles)
+                files.AddRange(Directory.GetFiles(folder, "*", SearchOption.TopDirectoryOnly));
+            else
+            {
+                files.AddRange(Directory.GetFiles(folder, "*.lnk", SearchOption.TopDirectoryOnly));
+                files.AddRange(Directory.GetFiles(folder, "*.url", SearchOption.TopDirectoryOnly));
+                files.AddRange(Directory.GetFiles(folder, "*.exe", SearchOption.TopDirectoryOnly));
+                files.AddRange(Directory.GetFiles(folder, "*.appref-ms", SearchOption.TopDirectoryOnly));
+            }
+
+            if (cfg.IncludeSubfolders)
+                dirs.AddRange(Directory.GetDirectories(folder, "*", SearchOption.TopDirectoryOnly));
         }
         catch (Exception ex)
         {
             ConfigService.Log("扫描目录失败: " + ex.Message);
         }
 
-        foreach (var f in files.Distinct(StringComparer.OrdinalIgnoreCase))
+        var hidden = new HashSet<string>(group.Hidden ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var f in files.Where(IsVisible).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var id = Path.GetFileNameWithoutExtension(f);
+            if (hidden.Contains(id)) continue;
+
             var item = new ShortcutItem
             {
                 Id = id,
                 FilePath = f,
                 DisplayName = group.Aliases != null && group.Aliases.TryGetValue(id, out var alias) && !string.IsNullOrWhiteSpace(alias)
-                    ? alias : id
+                    ? alias : Path.GetFileNameWithoutExtension(f)
             };
 
             if (Path.GetExtension(f).Equals(".lnk", StringComparison.OrdinalIgnoreCase))
@@ -99,7 +114,6 @@ public static class ShortcutService
                 item.Arguments = info.Arguments;
                 item.WorkingDirectory = info.WorkingDirectory;
                 item.Description = info.Description;
-                if (string.IsNullOrWhiteSpace(item.Description) == false) { }
                 item.Icon = IconService.GetIcon(
                     string.IsNullOrWhiteSpace(info.IconLocation) ? info.TargetPath : info.IconLocation,
                     info.IconIndex, string.IsNullOrWhiteSpace(info.TargetPath) ? f : info.TargetPath);
@@ -111,6 +125,23 @@ public static class ShortcutService
             }
 
             list.Add(item);
+        }
+
+        // 子文件夹也作为菜单项列出：点它就用资源管理器打开
+        foreach (var d in dirs.Where(IsDirVisible).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var id = Path.GetFileName(d);
+            if (string.IsNullOrEmpty(id) || hidden.Contains(id)) continue;
+            list.Add(new ShortcutItem
+            {
+                Id = id,
+                FilePath = d,
+                TargetPath = d,
+                IsFolder = true,
+                DisplayName = group.Aliases != null && group.Aliases.TryGetValue(id, out var alias) && !string.IsNullOrWhiteSpace(alias)
+                    ? alias : id,
+                Icon = IconService.GetIcon(d, 0, d)
+            });
         }
 
         // 排序：自定义顺序优先，其余按名称
@@ -129,6 +160,42 @@ public static class ShortcutService
         }
 
         return list;
+    }
+
+    /// <summary>系统自带的杂项文件不进菜单。</summary>
+    private static readonly HashSet<string> SkipNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "desktop.ini", "thumbs.db", ".ds_store", "ehthumbs.db", "iconcache.db"
+    };
+
+    private static bool IsVisible(string path)
+    {
+        try
+        {
+            var name = Path.GetFileName(path);
+            if (string.IsNullOrEmpty(name) || SkipNames.Contains(name)) return false;
+            if (name.StartsWith("~$") || name.StartsWith(".")) return false;
+
+            var attr = File.GetAttributes(path);
+            if ((attr & FileAttributes.Hidden) != 0) return false;
+            if ((attr & FileAttributes.System) != 0) return false;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static bool IsDirVisible(string path)
+    {
+        try
+        {
+            var name = Path.GetFileName(path);
+            if (string.IsNullOrEmpty(name) || name.StartsWith(".")) return false;
+            var attr = File.GetAttributes(path);
+            if ((attr & FileAttributes.Hidden) != 0) return false;
+            if ((attr & FileAttributes.System) != 0) return false;
+            return true;
+        }
+        catch { return false; }
     }
 
     public static void Launch(ShortcutItem item)

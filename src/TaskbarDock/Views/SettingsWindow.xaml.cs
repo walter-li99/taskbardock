@@ -65,6 +65,8 @@ public partial class SettingsWindow : Window
         ItemIconSizeBox.Text = c.ItemIconSize.ToString();
         AutoStartCheck.IsChecked = c.StartWithWindows;
         TrayCheck.IsChecked = c.ShowTrayIcon;
+        AllFilesCheck.IsChecked = c.ShowAllFiles;
+        SubFolderCheck.IsChecked = c.IncludeSubfolders;
         _loading = false;
     }
 
@@ -81,6 +83,8 @@ public partial class SettingsWindow : Window
         if (int.TryParse(ItemIconSizeBox.Text, out var iis)) c.ItemIconSize = Math.Clamp(iis, 12, 48);
         c.StartWithWindows = AutoStartCheck.IsChecked == true;
         c.ShowTrayIcon = TrayCheck.IsChecked == true;
+        c.ShowAllFiles = AllFilesCheck.IsChecked == true;
+        c.IncludeSubfolders = SubFolderCheck.IsChecked == true;
     }
 
     private static void SelectByTag(ComboBox cb, string tag)

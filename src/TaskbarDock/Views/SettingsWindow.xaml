@@ -144,6 +144,7 @@
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="分组名称" Style="{StaticResource Label}" Margin="0,10"/>
@@ -190,7 +191,17 @@
                                     <TextBlock Grid.Row="6" Grid.Column="1" Margin="0,6,0,0"
                                                Style="{StaticResource SubLabel}" TextWrapping="Wrap"
                                                Text="一个分组 = 任务栏上一个图标。新建的图标会立刻出现在任务栏，右键它 →「固定到任务栏」即可常驻。"/>
-                                    <Button Grid.Row="7" Grid.Column="1" Margin="0,10,0,0" HorizontalAlignment="Left"
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="显示内容" Style="{StaticResource Label}"
+                                               Margin="0,10" VerticalAlignment="Top"/>
+                                    <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,8,0,0">
+                                        <CheckBox x:Name="AllFilesCheck" Content="显示文件夹里的所有文件"
+                                                  Checked="OnGeneralChanged" Unchecked="OnGeneralChanged"/>
+                                        <CheckBox x:Name="SubFolderCheck" Content="把子文件夹也列进菜单" Margin="0,6,0,0"
+                                                  Checked="OnGeneralChanged" Unchecked="OnGeneralChanged"/>
+                                        <TextBlock Margin="0,4,0,0" Style="{StaticResource SubLabel}" TextWrapping="Wrap"
+                                                   Text="对所有分组生效。关闭第一项时只显示快捷方式、网址和程序。"/>
+                                    </StackPanel>
+                                    <Button Grid.Row="8" Grid.Column="1" Margin="0,10,0,0" HorizontalAlignment="Left"
                                             Content="预览这个菜单" Style="{StaticResource FlatButton}" Padding="12,5"
                                             Click="OnPreviewGroup"/>
                                 </Grid>

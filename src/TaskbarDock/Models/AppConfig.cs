@@ -30,6 +30,10 @@ public class AppConfig
     public double MenuMaxHeight { get; set; } = 520;
     public bool ShowItemIcons { get; set; } = true;
     public int ItemIconSize { get; set; } = 20;
+    /// <summary>显示文件夹里的所有文件，而不是只显示快捷方式与程序。</summary>
+    public bool ShowAllFiles { get; set; } = true;
+    /// <summary>把子文件夹也作为菜单项列出（点它打开该文件夹）。</summary>
+    public bool IncludeSubfolders { get; set; } = false;
     public int CornerRadius { get; set; } = 8;
     public bool StartWithWindows { get; set; } = true;
     public bool ShowTrayIcon { get; set; } = true;
