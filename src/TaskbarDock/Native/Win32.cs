@@ -32,7 +32,9 @@ public static class Win32
     public const int WM_DPICHANGED = 0x02E0;
     public const int WM_DISPLAYCHANGE = 0x007E;
     public const int WM_LBUTTONDOWN = 0x0201;
+    public const int WM_LBUTTONUP = 0x0202;
     public const int WM_RBUTTONDOWN = 0x0204;
+    public const int WM_RBUTTONUP = 0x0205;
     public const int WM_MOUSEMOVE = 0x0200;
     public const int WM_HOTKEY = 0x0312;
 
@@ -426,6 +428,17 @@ public static class Win32
 
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    public const int SW_RESTORE = 9;
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 
     [DllImport("user32.dll")]
     public static extern bool AllowSetForegroundWindow(int dwProcessId);

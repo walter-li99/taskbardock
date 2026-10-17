@@ -39,6 +39,10 @@ public partial class MenuWindow : Window
     private ShortcutItem _dragItem;
     private Window _ghost;
 
+    // 按下后待确认启动的项：OnUp 消费它；万一 OnUp 丢失（菜单被提前关闭），
+    // OnClosed 兜底把它启动掉，杜绝「菜单消失、程序没启动」。
+    private ShortcutItem _pendingLaunch;
+
     // 外部点击关闭
     private IntPtr _hookId = IntPtr.Zero;
     private HookProc _hookProc;
@@ -175,6 +179,18 @@ public partial class MenuWindow : Window
             _ghost = null;
             try { g.Close(); } catch { }
         }
+
+        // 兜底：按下鼠标后菜单被外部路径提前关闭（钩子异步 Close / 任务栏二次点击 /
+        // 展开其它分组菜单），WM_LBUTTONUP 到不了本窗口，OnUp 丢失。
+        // 这里把待启动项补上，保证「点了就一定启动」。
+        if (_pendingLaunch != null)
+        {
+            var it = _pendingLaunch;
+            _pendingLaunch = null;
+            ConfigService.Log("菜单关闭时补执行点击: " + it.DisplayName);
+            try { Launch(it); } catch (Exception ex) { ConfigService.Log("补启动失败: " + ex.Message); }
+        }
+
         SaveOrder();
     }
 
@@ -196,7 +212,9 @@ public partial class MenuWindow : Window
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && (wParam == (IntPtr)WM_LBUTTONDOWN || wParam == (IntPtr)WM_RBUTTONDOWN))
+        // 只在「抬起」时判定外部点击：DOWN 时若异步 Close，可能抢在 OnUp 之前把窗口关掉，
+        // 导致 WM_LBUTTONUP 丢失、点击的项永远不会被启动。
+        if (nCode >= 0 && (wParam == (IntPtr)WM_LBUTTONUP || wParam == (IntPtr)WM_RBUTTONUP))
         {
             try
             {
@@ -228,10 +246,15 @@ public partial class MenuWindow : Window
     private void OnDown(object sender, MouseButtonEventArgs e)
     {
         var item = ItemAt(e.GetPosition(List));
-        if (item == null) return;
+        if (item == null)
+        {
+            _pendingLaunch = null;
+            return;
+        }
         _pressed = true;
         _start = e.GetPosition(List);
         _dragItem = item;
+        _pendingLaunch = item;
     }
 
     private void OnMove(object sender, MouseEventArgs e)
@@ -242,6 +265,8 @@ public partial class MenuWindow : Window
         if (!_dragging)
         {
             if ((pos - _start).Length < 6) return;
+            // 一旦进入拖拽，就不再是「点击启动」意图
+            _pendingLaunch = null;
             _dragging = true;
             _dragItem.IsDragging = true;
             List.CaptureMouse();
@@ -265,11 +290,18 @@ public partial class MenuWindow : Window
 
         _pressed = false;
         var item = ItemAt(e.GetPosition(List));
-        if (item != null)
+        // 必须落在按下时那一项上才算点击；落空（移出列表/移到别项）则放弃，
+        // 同时清掉待启动项，防止菜单随后被外部关闭时兜底误启动。
+        if (item == null || !ReferenceEquals(item, _pendingLaunch))
         {
-            Launch(item);
-            Close();
+            _pendingLaunch = null;
+            return;
         }
+
+        _pendingLaunch = null;
+        // 先关菜单再启动：启动弹窗（如 UAC/错误提示）时菜单不会挂在屏幕上
+        Close();
+        Launch(item);
     }
 
     private void Launch(ShortcutItem item)
@@ -278,7 +310,6 @@ public partial class MenuWindow : Window
         if (item.Id == GroupWindow.PlaceholderId)
         {
             App.OpenFolder(item.FilePath);
-            Close();
             return;
         }
 

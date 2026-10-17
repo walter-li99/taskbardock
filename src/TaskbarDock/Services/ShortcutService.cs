@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using TaskbarDock.Models;
 using TaskbarDock.Native;
+using static TaskbarDock.Native.Win32;
 
 namespace TaskbarDock.Services;
 
@@ -202,19 +203,88 @@ public static class ShortcutService
     {
         try
         {
+            var wd = string.IsNullOrWhiteSpace(item.WorkingDirectory)
+                ? Path.GetDirectoryName(item.FilePath)
+                : item.WorkingDirectory;
+
+            ConfigService.Log("正在启动: " + item.FilePath + " (工作目录: " + wd + ")");
+
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = item.FilePath,
                 UseShellExecute = true,
-                WorkingDirectory = string.IsNullOrWhiteSpace(item.WorkingDirectory) ? Path.GetDirectoryName(item.FilePath) : item.WorkingDirectory
+                WorkingDirectory = wd
             };
-            System.Diagnostics.Process.Start(psi);
+            var proc = System.Diagnostics.Process.Start(psi);
+            ConfigService.Log("已创建进程: " + item.FilePath + " PID=" + (proc?.Id.ToString() ?? "?"));
+
+            // 异步观察：单实例程序（Electron 应用居多）的第二个实例会把窗口交给已有实例后秒退。
+            // 3 秒后若进程已退出，记录退出码并尝试把已有实例的窗口带到前台，
+            // 避免用户以为「点了没启动」。
+            ObserveAfterStart(proc, item);
         }
         catch (Exception ex)
         {
-            ConfigService.Log("启动失败 " + item.FilePath + " : " + ex.Message);
+            var code = ex is System.ComponentModel.Win32Exception we ? we.NativeErrorCode : 0;
+            ConfigService.Log("启动失败 " + item.FilePath + " : " + ex.Message + " (错误码 " + code + ")");
             System.Windows.MessageBox.Show("无法启动：\n" + item.FilePath + "\n\n" + ex.Message,
                 "任务栏整合", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+        }
+    }
+
+    private static async void ObserveAfterStart(System.Diagnostics.Process proc, ShortcutItem item)
+    {
+        try
+        {
+            if (proc == null) return;
+            await System.Threading.Tasks.Task.Delay(3000);
+            proc.Refresh();
+            if (!proc.HasExited)
+            {
+                ConfigService.Log("进程仍在运行: " + item.FilePath + " PID=" + proc.Id);
+                return;
+            }
+            var exitCode = -1;
+            try { exitCode = proc.ExitCode; } catch { }
+            ConfigService.Log("进程 3 秒内退出: " + item.FilePath + " PID=" + proc.Id + " 退出码=" + exitCode
+                              + "（单实例程序激活已有实例 / 被拦截 / 目标失效都有可能）");
+            ActivateExistingInstance(proc.ProcessName, item.DisplayName);
+        }
+        catch (Exception ex)
+        {
+            ConfigService.Log("观察启动结果失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>按进程名找到已运行的实例，把它的主窗口恢复到前台。</summary>
+    private static void ActivateExistingInstance(string processName, string displayName)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(processName)) return;
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(processName))
+            {
+                IntPtr h = p.MainWindowHandle;
+                if (h == IntPtr.Zero) continue;
+                ShowWindow(h, SW_RESTORE);
+                if (!SetForegroundWindow(h))
+                {
+                    // 前台限制：借输入线程的输入队列把窗口带上来
+                    uint targetThread = GetWindowThreadProcessId(h, out _);
+                    uint selfThread = GetWindowThreadProcessId(Win32.GetForegroundWindow(), out _);
+                    if (targetThread != 0 && selfThread != 0 && targetThread != selfThread)
+                        AttachThreadInput(selfThread, targetThread, true);
+                    SetForegroundWindow(h);
+                    if (targetThread != 0 && selfThread != 0 && targetThread != selfThread)
+                        AttachThreadInput(selfThread, targetThread, false);
+                }
+                ConfigService.Log("已激活已有实例窗口: " + displayName + " (PID " + p.Id + ")");
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ConfigService.Log("激活已有实例失败: " + ex.Message);
         }
     }
 }
