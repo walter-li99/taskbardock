@@ -105,18 +105,16 @@ public static class IconHelper
         int w = conv.PixelWidth, h = conv.PixelHeight, stride = w * 4;
         if (w <= 0 || h <= 0) return IntPtr.Zero;
 
-        var src = new byte[stride * h];
-        conv.CopyPixels(src, stride, 0);
+        var pixels = new byte[stride * h];
+        conv.CopyPixels(pixels, stride, 0);
 
-        // GDI 位图是自下而上的，翻转行序
-        var dst = new byte[src.Length];
-        for (int y = 0; y < h; y++)
-            Buffer.BlockCopy(src, y * stride, dst, (h - 1 - y) * stride, stride);
-
-        var ptr = Marshal.AllocHGlobal(dst.Length);
+        // 不要翻转行序。RenderTargetBitmap.CopyPixels 给出的是自上而下（top-down）扫描线，
+        // CreateBitmap + CreateIconIndirect 这一路也按这个顺序取用；额外翻转一次会让
+        // WM_SETICON 的 HICON 和由它导出的 ICO 一起上下颠倒（任务栏图标倒立）。
+        var ptr = Marshal.AllocHGlobal(pixels.Length);
         try
         {
-            Marshal.Copy(dst, 0, ptr, dst.Length);
+            Marshal.Copy(pixels, 0, ptr, pixels.Length);
             var hbm = CreateBitmap(w, h, 1, 32, ptr);
             if (hbm == IntPtr.Zero) return IntPtr.Zero;
 
