@@ -20,6 +20,9 @@ public partial class App : Application
 {
     // 进程间命令（第二个实例转发给已运行的实例）
     public static int CmdMessage { get; private set; }
+
+    /// <summary>资源管理器重启时由 Shell 广播的消息（重新登记任务栏按钮）。</summary>
+    public static int TaskbarCreatedMessage { get; private set; }
     public const int CmdMenu = 1;
     public const int CmdSettings = 2;
     public const int CmdExit = 3;
@@ -49,6 +52,7 @@ public partial class App : Application
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         CmdMessage = unchecked((int)RegisterWindowMessage("TaskbarDock.Command.v1"));
+        TaskbarCreatedMessage = unchecked((int)RegisterWindowMessage("TaskbarCreated"));
 
         var args = e.Args.ToList();
         var (cmd, groupId) = ParseArgs(args);
@@ -87,6 +91,7 @@ public partial class App : Application
         SyncHosts();
         SetupTray();
         ApplyAutoStart();
+        ScheduleIconReassert(args.Contains("--startup"));
 
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += (s, a) =>
         {
@@ -272,6 +277,36 @@ public partial class App : Application
         SyncHosts(rebuildIcons);
         UpdateTrayIcon();
         BuildTrayMenu();
+    }
+
+    /// <summary>把所有分组的图标重新推给 Shell 一次。</summary>
+    public void ReassertIcons(bool strong = false)
+    {
+        if (Hosts.Count == 0) return;
+        foreach (var h in Hosts) h.ReassertIcon(strong);
+        ConfigService.Log("图标补推" + (strong ? "(强刷新)" : "(弱刷新)") + ": " + Hosts.Count + " 个分组");
+    }
+
+    /// <summary>
+    /// 开机自启后补推图标。原因：登录时 Explorer 的按钮子系统还在初始化，
+    /// 任务栏按钮创建那一刻来取图标会超时，于是缓存成「未知窗口」占位图，
+    /// 之后没有任何事件会纠正它 —— 表现就是「每次开机某个分组的图标加载不出来」，
+    /// 且重启一次程序（此时 Explorer 已就绪）就恢复正常。
+    /// 所以启动后主动补推几次，最后一次用强刷新兜底（等价手动「重建任务栏图标」）。
+    /// </summary>
+    private void ScheduleIconReassert(bool atBoot)
+    {
+        var delays = atBoot ? new[] { 1200, 5000, 12000 } : new[] { 1200 };
+        foreach (var ms in delays)
+        {
+            var strong = atBoot && ms >= 12000;
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(ms)
+            };
+            timer.Tick += (s, a) => { timer.Stop(); ReassertIcons(strong); };
+            timer.Start();
+        }
     }
 
     // ===== 托盘 =====

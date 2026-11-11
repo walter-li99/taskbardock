@@ -106,6 +106,34 @@ public class GroupWindow : Window
         UpdateIcon(true);
     }
 
+    /// <summary>
+    /// 把已经生成好的图标再推给 Shell 一次。
+    /// 开机自启时 Explorer 的按钮子系统还没初始化完，按钮创建那一刻它来取图标会超时，
+    /// 于是缓存成「未知窗口」占位图，之后没有任何事件会纠正它（图标句柄其实一直是好的）。
+    /// strong=true 等价于手动「重建任务栏图标」（会发一次 Shell 通知）。
+    /// </summary>
+    public void ReassertIcon(bool strong = false)
+    {
+        if (_hwnd == IntPtr.Zero || _closed) return;
+
+        if (strong) { RebuildIcon(); return; }
+
+        if (_iconSmall == IntPtr.Zero && _iconBig == IntPtr.Zero)
+        {
+            _iconSig = null;
+            UpdateIcon();
+            return;
+        }
+
+        // 重发 WM_SETICON：Explorer 会盯着按钮对应窗口的图标变化，收到就重画按钮
+        if (_iconBig != IntPtr.Zero) SendMessage(_hwnd, WM_SETICON, (IntPtr)ICON_BIG, _iconBig);
+        if (_iconSmall != IntPtr.Zero) SendMessage(_hwnd, WM_SETICON, (IntPtr)ICON_SMALL, _iconSmall);
+
+        var icoPath = Path.Combine(ConfigService.AppDir, "Icons", Group.Id + ".ico");
+        if (File.Exists(icoPath)) WindowProperties.Set(_hwnd, WindowProperties.RelaunchIcon, icoPath);
+        else ConfigService.Log("图标文件缺失: " + icoPath);
+    }
+
     private void ApplyAppId()
     {
         if (_hwnd == IntPtr.Zero) return;
@@ -171,6 +199,14 @@ public class GroupWindow : Window
             handled = true;
             int cmd = (int)wParam;
             Dispatcher.BeginInvoke(new Action(() => App.Instance?.HandleCommand(cmd, null)));
+            return IntPtr.Zero;
+        }
+
+        if (App.TaskbarCreatedMessage != 0 && msg == App.TaskbarCreatedMessage)
+        {
+            // 资源管理器重启过：按钮是新的，图标得重新推一遍
+            handled = true;
+            Dispatcher.BeginInvoke(new Action(() => App.Instance?.ReassertIcons()));
             return IntPtr.Zero;
         }
 
